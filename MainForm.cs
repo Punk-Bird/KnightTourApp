@@ -876,7 +876,7 @@ public partial class MainForm : Form
         g.Clear(Color.White);
 
         var rect = chartPanel.ClientRectangle;
-        int leftM = 90, rightM = 30, topM = 20, bottomM = 46;   // leftM стал больше
+        int leftM = 90, rightM = 30, topM = 20, bottomM = 70;
         var plot = new Rectangle(
             leftM, topM,
             Math.Max(10, rect.Width - leftM - rightM),
@@ -979,6 +979,52 @@ public partial class MainForm : Form
             g.FillEllipse(okBrush, xp - 2.6f, yp - 2.6f, 5.2f, 5.2f);
         }
 
+        // --- аппроксимация (квадратичный тренд) ---
+        if (chkShowApprox.Checked && valid.Count >= 3)
+        {
+            var fit = FitQuadratic(valid);
+            if (fit.HasValue)
+            {
+                using var fitPen = new Pen(Color.FromArgb(230, 120, 40), 2f)
+                {
+                    DashStyle = DashStyle.Dash
+                };
+
+                // Локальная функция для плавной отрисовки по X (float, без округления)
+                float PlotXf(float nVal) =>
+                    plot.Left + (nVal - minN) / (float)Math.Max(1, maxN - minN) * plot.Width;
+
+                var curvePts = new List<PointF>();
+                int steps = 150; // чем больше, тем плавнее
+
+                for (int i = 0; i <= steps; i++)
+                {
+                    float xVal = minN + (maxN - minN) * (i / (float)steps);
+                    double yVal = fit.Value.A * xVal * xVal + fit.Value.B * xVal + fit.Value.C;
+
+                    // Не уходим ниже нуля
+                    if (yVal < 0) yVal = 0;
+
+                    curvePts.Add(new PointF(PlotXf(xVal), PlotY(yVal / divider)));
+                }
+
+                if (curvePts.Count > 1)
+                    g.DrawLines(fitPen, curvePts.ToArray());
+
+                // Вывод уравнения и R²
+                using var fitFont = new Font("Consolas", 8F);
+                using var fitBrush = new SolidBrush(Color.FromArgb(200, 100, 20));
+
+                string eq = $"y = {fit.Value.A:E2}·n² + {fit.Value.B:E2}·n + {fit.Value.C:E2}";
+                string r2str = $"R² = {fit.Value.R2:F4}";
+
+                g.DrawString(eq, fitFont, fitBrush, plot.Left + 8, plot.Top + 6);
+                g.DrawString(r2str, fitFont, fitBrush, plot.Left + 8, plot.Top + 18);
+            }
+
+        }
+
+
         // --- подписи осей ---
         using var titleFont = new Font("Segoe UI", 9F, FontStyle.Bold);
         g.DrawString("n", titleFont, axisBrush, plot.Right - 6, plot.Bottom + 24);
@@ -990,6 +1036,24 @@ public partial class MainForm : Form
         g.RotateTransform(-90);
         g.DrawString(yTitle, titleFont, axisBrush, 0, 0);
         g.Restore(state);
+
+        // --- Подписи под графиком (Легенда) ---
+        using var legendFont = new Font("Segoe UI", 8.5F);
+        float ly = plot.Bottom + 44; // 44 пикселя от низа графика
+
+        // 1. Результаты эксперимента
+        float lx1 = plot.Left + plot.Width * 0.12f;
+        g.FillEllipse(okBrush, lx1, ly + 2, 8, 8);
+        g.DrawString("Результаты эксперимента", legendFont, axisBrush, lx1 + 14, ly - 1);
+
+        // 2. Аппроксимация
+        float lx2 = plot.Left + plot.Width * 0.52f;
+        using var fitLegendPen = new Pen(Color.FromArgb(170, 230, 80, 0), 3f)
+        {
+            DashStyle = DashStyle.Dash
+        };
+        g.DrawLine(fitLegendPen, lx2, ly + 6, lx2 + 24, ly + 6);
+        g.DrawString("Квадратичная аппроксимация", legendFont, axisBrush, lx2 + 30, ly - 1);
     }
 
     private static double NiceStep(double range, int targetTicks)
@@ -1010,4 +1074,89 @@ public partial class MainForm : Form
         foreach (var s in steps) if (raw <= s) return s;
         return 2000;
     }
+
+    /// <summary>
+    /// Строит квадратичный тренд y = A*n^2 + B*n + C методом наименьших квадратов.
+    /// Возвращает коэффициенты и R². Null — если точек мало или система вырождена.
+    /// </summary>
+    private (double A, double B, double C, double R2)? FitQuadratic(List<ExperimentResult> pts)
+    {
+        int n = pts.Count;
+        if (n < 3) return null;
+
+        double sumX = 0, sumX2 = 0, sumX3 = 0, sumX4 = 0;
+        double sumY = 0, sumXY = 0, sumX2Y = 0;
+
+        foreach (var p in pts)
+        {
+            double x = p.N;
+            double y = p.ElapsedMs;
+            double x2 = x * x;
+
+            sumX += x;
+            sumX2 += x2;
+            sumX3 += x2 * x;
+            sumX4 += x2 * x2;
+
+            sumY += y;
+            sumXY += x * y;
+            sumX2Y += x2 * y;
+        }
+
+        // Система нормальных уравнений для y = A*n^2 + B*n + C
+        // A*sum(n^4) + B*sum(n^3) + C*sum(n^2) = sum(y*n^2)
+        // A*sum(n^3) + B*sum(n^2) + C*sum(n)   = sum(y*n)
+        // A*sum(n^2) + B*sum(n)   + C*N        = sum(y)
+        double[,] M = new double[3, 4]
+        {
+            { sumX4, sumX3, sumX2, sumX2Y }, // строка для A
+            { sumX3, sumX2, sumX,  sumXY  }, // строка для B
+            { sumX2, sumX,  n,     sumY   }  // строка для C
+        };
+
+        // Прямой ход метода Гаусса
+        for (int i = 0; i < 3; i++)
+        {
+            int maxRow = i;
+            for (int k = i + 1; k < 3; k++)
+                if (Math.Abs(M[k, i]) > Math.Abs(M[maxRow, i]))
+                    maxRow = k;
+
+            for (int k = i; k < 4; k++)
+            {
+                double tmp = M[maxRow, k];
+                M[maxRow, k] = M[i, k];
+                M[i, k] = tmp;
+            }
+
+            if (Math.Abs(M[i, i]) < 1e-12) return null; // вырожденная матрица
+
+            for (int k = i + 1; k < 3; k++)
+            {
+                double factor = M[k, i] / M[i, i];
+                for (int j = i; j < 4; j++)
+                    M[k, j] -= factor * M[i, j];
+            }
+        }
+
+        // Обратный ход
+        double C = M[2, 3] / M[2, 2];
+        double B = (M[1, 3] - M[1, 2] * C) / M[1, 1];
+        double A = (M[0, 3] - M[0, 1] * B - M[0, 2] * C) / M[0, 0];
+
+        // Вычисление R²
+        double meanY = sumY / n;
+        double ssTot = 0, ssRes = 0;
+        foreach (var p in pts)
+        {
+            double pred = A * p.N * p.N + B * p.N + C;
+            ssRes += Math.Pow(p.ElapsedMs - pred, 2);
+            ssTot += Math.Pow(p.ElapsedMs - meanY, 2);
+        }
+
+        double r2 = ssTot > 0 ? 1 - ssRes / ssTot : 1;
+
+        return (A, B, C, r2);
+    }
+
 }

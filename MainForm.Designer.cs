@@ -14,6 +14,7 @@ partial class MainForm
     private Button btnPlayPause;
     private CheckBox chkShowCandidates;
     private CheckBox chkWarnsdorff;
+    private CheckBox chkShowApprox;
     private TrackBar tbSpeed;
     private Label lblSpeed;
     private Label lblInfo;
@@ -62,6 +63,7 @@ partial class MainForm
         this.btnPlayPause = new Button();
         this.chkShowCandidates = new CheckBox();
         this.chkWarnsdorff = new CheckBox();
+        this.chkShowApprox = new CheckBox();
         this.tbSpeed = new TrackBar();
         this.lblSpeed = new Label();
         this.lblInfo = new Label();
@@ -146,6 +148,14 @@ partial class MainForm
         this.chkWarnsdorff.ForeColor = Color.DarkSlateGray;
         this.chkWarnsdorff.CheckedChanged += (s, e) => UpdateButtonsEnabled();
 
+        // ---- chkShowApprox ----
+        this.chkShowApprox.Text = "";
+        this.chkShowApprox.Location = new Point(400, 97);
+        this.chkShowApprox.Size = new Size(250, 22);
+        this.chkShowApprox.Checked = true;
+        this.chkShowApprox.ForeColor = Color.DarkSlateGray;
+        this.chkShowApprox.CheckedChanged += (s, e) => chartPanel.Invalidate();
+
         // ---- tbSpeed ----
         this.tbSpeed.Location = new Point(420, 80);
         this.tbSpeed.Size = new Size(200, 26);
@@ -225,6 +235,11 @@ partial class MainForm
 
         // ---- lblExperimentStatus ----
         this.lblExperimentStatus.Location = new Point(10, 98);
+        this.lblExperimentStatus.Size = new Size(380, 20);
+        this.lblExperimentStatus.ForeColor = Color.DarkSlateGray;
+
+        // ---- lblExperimentStatus ----
+        this.lblExperimentStatus.Location = new Point(10, 98);
         this.lblExperimentStatus.Size = new Size(460, 20);
         this.lblExperimentStatus.ForeColor = Color.DarkSlateGray;
 
@@ -265,6 +280,7 @@ partial class MainForm
         this.analysisPanel.Controls.Add(this.chartPanel);
         this.analysisPanel.Controls.Add(this.lblResultLogHeader);
         this.analysisPanel.Controls.Add(this.resultLog);
+        this.analysisPanel.Controls.Add(this.chkShowApprox);
 
         // ---- Form ----
         this.ClientSize = new Size(950, 815);
